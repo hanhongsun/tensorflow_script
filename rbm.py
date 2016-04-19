@@ -47,13 +47,9 @@ print 'W ', sess.run(tf.size(W)), sess.run(tf.shape(W)),\
   'b ', sess.run(tf.size(b)), sess.run(tf.shape(b)),\
   'c ', sess.run(tf.size(c)), sess.run(tf.shape(c))
 
-h = tf.placeholder(tf.float32, [size_h, size_bt])
-x1 = tf.placeholder(tf.float32, [size_x, size_bt])
-h1 = tf.placeholder(tf.float32, [size_h, size_bt])
-
-h_ = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x) + tf.tile(b, [1, size_bt])))
-x1_ = sample(tf.sigmoid(tf.matmul(W, h) + tf.tile(c, [1, size_bt])))
-h1_ = tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt]))
+h = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x) + tf.tile(b, [1, size_bt])))
+x1 = sample(tf.sigmoid(tf.matmul(W, h) + tf.tile(c, [1, size_bt])))
+h1 = tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt]))
 
 # set up the session
   # this session has multiple output to b_update W_update c_update at one round
@@ -62,7 +58,6 @@ h1_ = tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt]))
 # c_ = tf.reduce_sum(x - x1, 1)
 # W_ = tf.matmul(x, tf.transpose(h)) - tf.matmul(x1, tf.transpose(h1))
 # b_ = tf.reduce_sum(h - h1, 1)
-
 wbc_ = [tf.mul(a/float(size_bt), tf.matmul(x, tf.transpose(h)) - tf.matmul(x1, tf.transpose(h1))),\
         tf.mul(a/float(size_bt), tf.reduce_sum(h - h1, 1)),\
         tf.mul(a/float(size_bt), tf.reduce_sum(x - x1, 1))]
@@ -89,10 +84,7 @@ for i in range(1, 5001):
     # b_update = sess.run(b_, feed_dict={x: tr_x})
     # W_update = sess.run(W_, feed_dict={x: tr_x})
     # c_update = sess.run(c_, feed_dict={x: tr_x})
-    rh = sess.run(h_, feed_dict={x: tr_x})
-    rx1 = sess.run(x1_, feed_dict={x: tr_x, h: rh})
-    rh1 = sess.run(h1_, feed_dict={x: tr_x, x1: rx1})
-    [W_update, b_update, c_update] = sess.run(wbc_, feed_dict={x: tr_x, a: alpha, h: rh, x1: rx1, h1: rh1})
+    [W_update, b_update, c_update] = sess.run(wbc_, feed_dict={x: tr_x, a: alpha})
     b += b_update
     W += W_update
     c += c_update
