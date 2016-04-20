@@ -55,12 +55,12 @@ h1 = tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt]))
   # this session has multiple output to b_update W_update c_update at one round
 
 # def sess_fun():
-# c_ = tf.reduce_sum(x - x1, 1)
+# c_ = tf.reduce_sum(x - x1, 1, True)
 # W_ = tf.matmul(x, tf.transpose(h)) - tf.matmul(x1, tf.transpose(h1))
-# b_ = tf.reduce_sum(h - h1, 1)
+# b_ = tf.reduce_sum(h - h1, 1, True)
 wbc_ = [tf.mul(a/float(size_bt), tf.matmul(x, tf.transpose(h)) - tf.matmul(x1, tf.transpose(h1))),\
-        tf.mul(a/float(size_bt), tf.reduce_sum(h - h1, 1)),\
-        tf.mul(a/float(size_bt), tf.reduce_sum(x - x1, 1))]
+        tf.mul(a/float(size_bt), tf.reduce_sum(h - h1, 1, True)),\
+        tf.mul(a/float(size_bt), tf.reduce_sum(x - x1, 1, True))]
 
 tf.stop_gradient(h)
 tf.stop_gradient(x1)
@@ -98,13 +98,20 @@ for i in range(1, 5001):
                                                    )
                                 )
         image.show()
-        imageh = Image.fromarray(tile_raster_images(sess.run(sample(x), feed_dict={x: tr_x}).T,#np.transpose(tr_x), #
+        print 'c shape ', sess.run(tf.shape(c)), 'c_update shape ', sess.run(tf.shape(c_update))
+        # print 'c ', sess.run(c).T
+        print 'b shape ', sess.run(tf.shape(b)), 'b_update shape ', sess.run(tf.shape(b_update))
+        # print 'b ', sess.run(b).T
+        print 'W shape ', sess.run(tf.shape(W)), 'W_update shape ', sess.run(tf.shape(W_update))
+        # print 'W ', sess.run(W).T
+                
+        imageh = Image.fromarray(tile_raster_images(sess.run(sample(x), feed_dict={x: tr_x}).T,#np.transpose(tr_x), #c_update.T,#
                                                    img_shape=(28, 28),
-                                                   tile_shape=(7, 8),
+                                                   tile_shape=(1, 1),
                                                    tile_spacing=(2, 2)
                                                    )
                                 )
-        imageh.show()
+        # imageh.show()
 
 
 # set up the algorithm
