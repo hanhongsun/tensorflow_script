@@ -10,7 +10,7 @@ from utils import tile_raster_images
 side_h = 10
 size_x = 28*28
 size_h = side_h * side_h
-size_bt = 200 # batch size
+size_bt = 100 # batch size
 
 #### we do the first test on the minst data again
 
@@ -63,15 +63,15 @@ init = tf.initialize_all_variables()
 sess.run(init)
 
 # loop with batch
-for i in range(1, 10002):
+for i in range(1, 100002):
     tr_x, tr_y  = mnist.train.next_batch(size_bt)
     tr_x = np.transpose(tr_x)
     tr_y = np.transpose(tr_y)
-    alpha = min(0.005, 10/float(i))
+    alpha = min(0.05, 100/float(i))
     sess.run(updt, feed_dict={x: tr_x, a: alpha})
     print i, ' step size ', alpha
     # vidualization
-    if i % 500 == 1:
+    if i % 5000 == 1:
         image = Image.fromarray(tile_raster_images(sess.run(W).T,
                                                    img_shape=(28, 28),
                                                    tile_shape=(side_h, side_h),
