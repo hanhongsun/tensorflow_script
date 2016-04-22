@@ -46,7 +46,7 @@ h1 = tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt]))
         tf.mul(a/float(size_bt), tf.reduce_sum(tf.sub(x, x1), 1, True))]
 
 # wrap session
-updt = [W.assign(W + W_), b.assign(b + b_), c.assign(c + c_)]
+updt = [W.assign_add(W_), b.assign_add(b_), c.assign_add(c_)]
 
 # stop gradient to save time and mem
 tf.stop_gradient(h)
@@ -63,7 +63,7 @@ init = tf.initialize_all_variables()
 sess.run(init)
 
 # loop with batch
-for i in range(1, 100002):
+for i in range(1, 10002):
     tr_x, tr_y  = mnist.train.next_batch(size_bt)
     tr_x = np.transpose(tr_x)
     tr_y = np.transpose(tr_y)
@@ -86,7 +86,7 @@ for i in range(1, 100002):
         print 'h1 ', sess.run(h1, feed_dict={x: tr_x}).T        
         imageh = Image.fromarray(tile_raster_images(sess.run(x1, feed_dict={x: tr_x}).T,
                                                    img_shape=(28, 28),
-                                                   tile_shape=(9, 9),
+                                                   tile_shape=(10, 10),
                                                    tile_spacing=(2, 2)))
         imageh.show()
 
