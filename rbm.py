@@ -13,7 +13,7 @@ size_x = 28*28
 size_h = side_h * side_h
 size_bt = 100 # batch size
 
-k = tf.constant(8)
+k = tf.constant(1)
 
 #### we do the first test on the minst data again
 
@@ -56,7 +56,7 @@ def rbmGibbs(xx, hk, count, k):
     return xk, hk, count+1, k
 
 def less_than_k(xx, hk, count, k):
-    return count < k
+    return count <= k
 
 ct = tf.constant(1)
 
@@ -106,10 +106,15 @@ for i in range(1, 10002):
         print 'h ', sess.run(h, feed_dict={x: tr_x}).T
         # print 'x1 ', sess.run(x1, feed_dict={x: tr_x}).T
         # print 'h1 ', sess.run(h1, feed_dict={x: tr_x}).T        
-        imageh = Image.fromarray(tile_raster_images(sess.run(xk1, feed_dict={x: tr_x}).T,
+        imagex = Image.fromarray(tile_raster_images(np.transpose(tr_x),
                                                    img_shape=(28, 28),
                                                    tile_shape=(10, 10),
                                                    tile_spacing=(2, 2)))
-        imageh.show()
+        imagex.show()
+        imagexk = Image.fromarray(tile_raster_images(sess.run(xk1, feed_dict={x: tr_x}).T,
+                                                   img_shape=(28, 28),
+                                                   tile_shape=(10, 10),
+                                                   tile_spacing=(2, 2)))
+        imagexk.show()
 
 
