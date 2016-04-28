@@ -49,8 +49,8 @@ h = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x) + tf.tile(b, [1, size_bt])))
 
 # set up tf.while_loop()
 
-def rbmGibbs(xx, hk, count, k):
-    xk = sampleInt(tf.sigmoid(tf.matmul(W, hk) + tf.tile(c, [1, size_bt])))
+def rbmGibbs(xx, hh, count, k):
+    xk = sampleInt(tf.sigmoid(tf.matmul(W, hh) + tf.tile(c, [1, size_bt])))
     hk = sampleInt(tf.sigmoid(tf.matmul(tf.transpose(W), xk) + tf.tile(b, [1, size_bt])))
     # assh_in1 = h_in.assign(hk)
     return xk, hk, count+1, k
