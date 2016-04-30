@@ -1,3 +1,4 @@
+from mt_reward import muscleTorqueScore
 import tensorflow as tf
 import Image
 import numpy as np
@@ -9,78 +10,46 @@ from tensorflow.python.ops import control_flow_ops
 # size_x is the size of the visiable layer
 # size_h is the size of the hidden layer
 side_h = 20
-side_x = 28
+side_x = 100
 size_x = side_x * side_x
 size_h = side_h * side_h
-size_bt = 100 # batch size
+size_bt = 1 # batch size
 
 # helper function
 
-# def sample(probs):
-#     return tf.to_float(tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1)))
+def sample(probs):
+    return tf.to_float(tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1)))
 
-# def sampleInt(probs):
-#     return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
+def sampleInt(probs):
+    return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
 
-# define the reward function
 
-def muscleTorqueScore(size, side, x):
-    # size == side * side
-    assert(size == x.shape[0])
-    len = x.shape[1] # number of samples
-    x = x * 2
-    x -= 1
-    # print x
-    H = side/2 # half the side is the bone in center of the muscle 
-    tqx = np.zeros((1,len))
-    tqy = np.zeros((1,len))
-    for i in range(-side + 1, side + 1, 2):
-        for j in range(-side + 1, side + 1, 2):
-            if i*i + j*j <= size:
-                ind = side *(i + side -1)/2 + (j + side -1)/2
-                tqx += x[ind, :]*i
-                tqy += x[ind, :]*j
-    # center of mass is the torque center == 4*r/(3*pi), mass of force = pi*r^2
-    # raw score is 2 * 4/3 *r^3, as i, j ranged 2*d instead of d
-    # size*side = 8*r^3, 
-    score = 3 * np.sqrt(tqx*tqx + tqy*tqy)/(size*side)
-    return score
+# define parameters
+b = tf.Variable(tf.random_uniform([size_h, 1], -0.05, 0.05))
+W = tf.Variable(tf.random_uniform([size_x, size_h], -0.05, 0.05))
+c = tf.Variable(tf.random_uniform([size_x, 1], -0.05, 0.05))
+x = tf.placeholder(tf.float32, [size_x, size_bt])
+# a = tf.placeholder(tf.float32)
 
-# high score examples should be equal or close to 1
-x_test = np.zeros((size_x, 20))
-# print x_test
-x_test[0: size_x/2, 0] = 1
-x_test[size_x/2: size_x, 1] = 1
-logic_index = (np.array(range(0, size_x))/side_x) > (side_x - np.array(range(0, size_x))%side_x)
-x_test[logic_index, 2] = 1
-logic_index = (np.array(range(0, size_x))/side_x) < (side_x - np.array(range(0, size_x))%side_x)
-x_test[logic_index, 3] = 1
-logic_index = (np.array(range(0, size_x))/(side_x/2))%2 == 1
-x_test[logic_index, 4] = 1
-logic_index = (np.array(range(0, size_x))/(side_x/2))%2 == 0
-x_test[logic_index, 5] = 1
-logic_index = (np.array(range(0, size_x))/side_x) > (np.array(range(0, size_x))%side_x)
-x_test[logic_index, 6] = 1
-logic_index = (np.array(range(0, size_x))/side_x) < (np.array(range(0, size_x))%side_x)
-x_test[logic_index, 7] = 1
+# define the Simulated annealing sampling graph
+cold = tf.Variable(tf.ones([1])*0.05) # cold is 1/Temperature
+an_step = tf.constant(0.05)
 
-# negtive examples, should keep as close to 0 as possible
-x_test[:, 8] = 1.0 * np.ones((size_x))
-x_test[size_x/2, 8] = 0
-# 9 is all zeros
-x_test[0:size_x:2, 10] = 1
-logic_index = (np.array(range(0, size_x))/side_x)%2 == 0
-x_test[logic_index, 11] = 1
-x_test[0:size_x:3, 12] = 1
-logic_index = (np.array(range(0, size_x))/side_x)%3 == 0
-x_test[logic_index, 13] = 1
-x_test[:, 14:21] = np.random.randint(2, size=(size_x, 6))
+h = sample(tf.sigmoid(tf.matmul(tf.transpose(W * cold), x) + tf.tile(b * cold, [1, size_bt])))
 
-print x_test
-print muscleTorqueScore(size_x, side_x, x_test)
+def rbmGibbs(xx, hh, count, cold):
+    xk = sampleInt(tf.sigmoid(tf.matmul(W * cold, hh) + tf.tile(c * cold, [1, size_bt])))
+    hk = sampleInt(tf.sigmoid(tf.matmul(tf.transpose(W * cold), xk) + tf.tile(b * cold, [1, size_bt])))
+    # assh_in1 = h_in.assign(hk)
+    return xk, hk, count + 1, cold + an_step
 
-image = Image.fromarray(tile_raster_images(np.transpose(x_test),
-                                           img_shape=(side_x, side_x),
-                                           tile_shape=(2, 10),
-                                           tile_spacing=(2, 2)))
-image.show()
+def less_than_k(xx, hk, count, k):
+    return count <= k
+
+
+# define the update rule
+
+
+muscleTorqueScore(size_x, side_x, x_test)
+
+
