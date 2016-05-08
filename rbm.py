@@ -55,12 +55,12 @@ def rbmGibbs(xx, hh, count, k):
     # assh_in1 = h_in.assign(hk)
     return xk, hk, count+1, k
 
-def less_than_k(xx, hk, count, k):
+def lessThanK(xx, hk, count, k):
     return count <= k
 
 ct = tf.constant(1)
 
-[xk1, hk1, _, _] = control_flow_ops.While(less_than_k, rbmGibbs, [x, h, ct, k], 1, False)
+[xk1, hk1, _, _] = control_flow_ops.While(lessThanK, rbmGibbs, [x, h, ct, k], 1, False)
 
 # update rule
 [W_, b_, c_] = [tf.mul(a/float(size_bt), tf.sub(tf.matmul(x, tf.transpose(h)), tf.matmul(xk1, tf.transpose(hk1)))),\
