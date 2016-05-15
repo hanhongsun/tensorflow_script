@@ -14,7 +14,7 @@ side_h = 10
 side_x = 10
 size_x = side_x * side_x
 size_h = side_h * side_h
-size_bt = 100 # batch size ## TODO support only batch == 1
+size_bt = 1 # batch size ## TODO support only batch == 1
 
 # helper function
 
@@ -34,7 +34,7 @@ def scalePosNegOneInt(vec):
 b = tf.Variable(tf.random_uniform([size_h, 1], -0.05, 0.05))
 W = tf.Variable(tf.random_uniform([size_x, size_h], -0.05, 0.05))
 c = tf.Variable(tf.random_uniform([size_x, 1], -0.05, 0.05))
-
+H0 = tf.Variable(tf.zeros([size_h, size_bt], tf.float32))
 X1 = tf.Variable(tf.zeros([size_x, size_bt], tf.float32))
 H1 = tf.Variable(tf.zeros([size_h, size_bt], tf.float32))
 
@@ -49,8 +49,8 @@ norm_const = tf.Variable([20.00])
 
 an_step = tf.constant(0.01)
 
-x0 = sample(tf.ones([size_x, size_bt]) * 0.5)
-h0 = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x0) + tf.tile(b*0, [1, size_bt])))
+x_o = sample(tf.ones([size_x, size_bt]) * 0.5)
+h_o = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x_o) + tf.tile(b*0, [1, size_bt])))
 
 def simAnnealingGibbs(xx, hh, temp_inv):
     xk = sample(tf.sigmoid(tf.matmul(W*temp_inv, hh) + tf.tile(c*temp_inv, [1, size_bt])))
@@ -60,8 +60,12 @@ def simAnnealingGibbs(xx, hh, temp_inv):
 def isColdEnough(xx, hh, temp_inv):
     return temp_inv < 1.0
 
-[x1, h1, _] = control_flow_ops.While(isColdEnough, simAnnealingGibbs, [x0, h0, coldness], 1, False)
-sample_data = [X1.assign(x1), H1.assign(h1)]
+[x0, h0, _] = control_flow_ops.While(isColdEnough, simAnnealingGibbs, [x_o, h_o, coldness], 1, False)
+
+x1 = sample(tf.sigmoid(tf.matmul(W, h0) + tf.tile(c, [1, size_bt])))
+h1 = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt])))
+
+sample_data = [H0.assign(h0), X1.assign(x1), H1.assign(h1)]
 
 def logMargX(x, h, W, c):
     prob_all1 = tf.matmul(W, h) + tf.tile(c, [1, size_bt])
@@ -71,9 +75,9 @@ def logMargX(x, h, W, c):
     return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True))
 
 # define the update rule
-updt_value = sc - logMargX(X1, H1, W, c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
+updt_value = sc - logMargX(X1, H0, W, c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
 update_value = tf.minimum(tf.maximum(tf.exp(updt_value) - 1, -1), 10)
-update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 10)
+update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 100)
 
 norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
 
@@ -98,7 +102,7 @@ sess.run(init)
 norm_hist = []
 sample_score_hist = []
 # loop with batch
-for i in range(1, 10002):
+for i in range(1, 5002):
     alpha = min(0.05, 10.0/float(i))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
@@ -127,10 +131,12 @@ for i in range(1, 10002):
         image.show()
         image = Image.fromarray(tile_raster_images(sess.run(c).T,
                                                    img_shape=(side_x, side_x),
-                                                   tile_shape=(1, 1),
+                                                   tile_shape=(2, 2),
                                                    tile_spacing=(2, 2)))
         image.show()
         print 'norm_const ', sess.run(norm_const).T
+        print 'W ', sess.run(W).T
+        print 'c ', sess.run(c).T
         # plt.plot(sample_score_hist)
         # print 'c ', sess.run(c).T
         # print 'b ', sess.run(b).T
