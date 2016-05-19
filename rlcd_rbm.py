@@ -14,8 +14,8 @@ side_h = 10
 side_x = 10
 size_x = side_x * side_x
 size_h = side_h * side_h
-size_bt = 1 # batch size ## TODO support only batch == 1
-
+size_bt = 100 # batch size ## TODO support only batch == 1
+k = 16
 # helper function
 
 def sample(probs):
@@ -47,7 +47,7 @@ sc = tf.placeholder(tf.float32, [1, size_bt]) # place holder for returned score
 # the const number for this
 norm_const = tf.Variable([20.00])
 
-an_step = tf.constant(0.01)
+an_step = tf.constant(0.2)
 
 x_o = sample(tf.ones([size_x, size_bt]) * 0.5)
 h_o = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x_o) + tf.tile(b*0, [1, size_bt])))
@@ -76,16 +76,36 @@ def logMargX(x, h, W, c):
 
 # define the update rule
 updt_value = sc - logMargX(X1, H0, W, c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
-update_value = tf.minimum(tf.maximum(tf.exp(updt_value) - 1, -1), 10)
-update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 100)
+update_value = tf.minimum(tf.maximum(tf.exp(updt_value) - 2.8, -2.8), 100)
+update_value_norm = tf.minimum(tf.maximum(updt_value, -2.8), 100)
 
 norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
 
-x2 = sample(tf.sigmoid(tf.matmul(W, H1) + tf.tile(c, [1, size_bt])))
-h2 = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x2) + tf.tile(b, [1, size_bt])))
+# x2 = sample(tf.sigmoid(tf.matmul(W, H1) + tf.tile(c, [1, size_bt])))
+# h2 = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x2) + tf.tile(b, [1, size_bt])))
+
+def rbmGibbs(xx, hh, count, k):
+    xk = sampleInt(tf.sigmoid(tf.matmul(W, hh) + tf.tile(c, [1, size_bt])))
+    hk = sampleInt(tf.sigmoid(tf.matmul(tf.transpose(W), xk) + tf.tile(b, [1, size_bt])))
+    # assh_in1 = h_in.assign(hk)
+    return xk, hk, count+1, k
+
+def lessThanK(xk, hk, count, k):
+    return count <= k
+
+# tf.convert_to_tensor(X1, name="X1") tf.convert_to_tensor(H1, name="H1")
+[x2, h2, _, _] = control_flow_ops.While(lessThanK, rbmGibbs, [X1, H1, tf.convert_to_tensor(1), tf.convert_to_tensor(k)], 1, False)
+
+
+debug_1 = tf.tile(tf.reshape(update_value, [size_bt, 1, 1]), [1, size_x, size_h])
+debug_2 = tf.batch_matmul(tf.expand_dims(tf.transpose(X1), 2), tf.expand_dims(tf.transpose(H1), 1))
+debug_3 = tf.batch_matmul(tf.expand_dims(tf.transpose(x2), 2), tf.expand_dims(tf.transpose(h2), 1))
+debug_4 = tf.tile(tf.reshape(update_value, [size_bt, 1, 1]), [1, size_x, size_h]) * tf.batch_matmul(tf.expand_dims(tf.transpose(X1), 2), tf.expand_dims(tf.transpose(H1), 1))
+
 
 W_ = a/float(size_bt) * tf.reduce_mean(tf.sub(tf.batch_matmul(tf.expand_dims(tf.transpose(X1), 2), tf.expand_dims(tf.transpose(H1), 1)),\
-     tf.batch_matmul(tf.expand_dims(tf.transpose(x2), 2), tf.expand_dims(tf.transpose(h2), 1))) * tf.tile(tf.reshape(update_value, [size_bt, 1, 1]), [1, size_x, size_h]), 0)
+                                              tf.batch_matmul(tf.expand_dims(tf.transpose(x2), 2), tf.expand_dims(tf.transpose(h2), 1)))\
+                                       * tf.tile(tf.reshape(update_value, [size_bt, 1, 1]), [1, size_x, size_h]), 0)
 b_ = a * tf.reduce_mean(tf.mul(tf.sub(H1, h2), tf.tile(update_value, [size_h, 1])), 1, True)
 c_ = a * tf.reduce_mean(tf.mul(tf.sub(X1, x2), tf.tile(update_value, [size_x, 1])), 1, True)
 
@@ -102,8 +122,8 @@ sess.run(init)
 norm_hist = []
 sample_score_hist = []
 # loop with batch
-for i in range(1, 5002):
-    alpha = min(0.05, 10.0/float(i))
+for i in range(1, 10002):
+    alpha = min(0.05, 100.0/float(i))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
     score = 10.0 * muscleTorqueScore(size_x, side_x, x1_)
@@ -137,6 +157,11 @@ for i in range(1, 5002):
         print 'norm_const ', sess.run(norm_const).T
         print 'W ', sess.run(W).T
         print 'c ', sess.run(c).T
+        # print 'tiled 3d scalar', sess.run(debug_1, feed_dict={sc: score, a: alpha}).T
+        # print 'W update pos side 3d', sess.run(debug_2, feed_dict={sc: score, a: alpha}).T
+        # print 'W update neg side re-sample 3d', sess.run(debug_3, feed_dict={sc: score, a: alpha}).T
+        # print 'W update neg side weighted 3d', sess.run(debug_4, feed_dict={sc: score, a: alpha}).T
+
         # plt.plot(sample_score_hist)
         # print 'c ', sess.run(c).T
         # print 'b ', sess.run(b).T
