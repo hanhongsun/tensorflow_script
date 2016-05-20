@@ -76,7 +76,7 @@ def logMargX(x, h, W, c):
 
 # define the update rule
 updt_value = sc - logMargX(X1, H0, W, c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
-update_value = tf.minimum(tf.maximum(tf.exp(updt_value) - 2.8, -2.8), 100)
+update_value = tf.minimum(tf.maximum(tf.exp(updt_value * 5.0) - tf.exp(updt_value), -33333), 300)
 update_value_norm = tf.minimum(tf.maximum(updt_value, -2.8), 100)
 
 norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
@@ -126,7 +126,7 @@ for i in range(1, 10002):
     alpha = min(0.05, 100.0/float(i))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
-    score = 10.0 * muscleTorqueScore(size_x, side_x, x1_)
+    score = 2.0 * muscleTorqueScore(size_x, side_x, x1_)
     sample_score_hist.extend(score.tolist())
     # print sample_score_hist
     # print "shape of W_", sess.run(tf.shape(W_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(W))
