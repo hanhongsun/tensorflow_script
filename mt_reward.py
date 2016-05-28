@@ -29,6 +29,7 @@ def muscleTorqueScore(size, side, x):
 def muscleDirectTorqueScore(size, side, x, theta):
     # size == side * side
     assert(size == x.shape[0])
+    # assert(x.shape[1] == theta.shape[0])
     len = x.shape[1] # number of samples
     x = x * 2
     x -= 1
@@ -45,10 +46,10 @@ def muscleDirectTorqueScore(size, side, x, theta):
     # center of mass is the torque center == 4*r/(3*pi), mass of force = pi*r^2
     # raw score is 2 * 4/3 *r^3, as i, j ranged 2*d instead of d
     # size*side = 8*r^3, 
-    # score = 3 * np.sqrt(tqx*tqx + tqy*tqy)/(size*side)
     score_x = 3 * tqx/(size*side)
     score_y = 3 * tqy/(size*side)
-    score = np.sqrt(score_x*score_x + score_y*score_y)
+    # cos(x - y) = cos(x)cos(y) + sin(x)sin(y)
+    # r*cos(x - y)
     direction_score = score_x * np.cos(theta) + score_y * np.sin(theta)
     return direction_score
 
@@ -93,13 +94,15 @@ if __name__ == "__main__":
     # Do the test here
     print x_test
     print muscleTorqueScore(size_x, side_x, x_test)
-    print "theta 0", muscleDirectTorqueScore(size_x, side_x, x_test, 0) 
-    print "theta pi/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159/4) 
+    print "theta [all]", muscleDirectTorqueScore(size_x, side_x, x_test, range(20)*3.14159/4)
+    print "theta [0]", muscleDirectTorqueScore(size_x, side_x, x_test, [0]*20)
+    print "theta 0", muscleDirectTorqueScore(size_x, side_x, x_test, 0)
+    print "theta pi/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159/4)
     print "theta pi/2", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159/2)
-    print "theta pi*3/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*3/4) 
+    print "theta pi*3/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*3/4)
     print "theta pi", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159)
-    print "theta pi*5/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*5/4) 
-    print "theta pi*3/2", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*3/2) 
+    print "theta pi*5/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*5/4)
+    print "theta pi*3/2", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*3/2)
     print "theta pi*7/4", muscleDirectTorqueScore(size_x, side_x, x_test, 3.14159*7/4)
     image = Image.fromarray(tile_raster_images(np.transpose(x_test),
                                            img_shape=(side_x, side_x),
