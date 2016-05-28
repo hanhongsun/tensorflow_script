@@ -75,9 +75,9 @@ def logMargX(x, h, W, c):
     return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True))
 
 # define the update rule
-updt_value = sc - logMargX(X1, H0, W, c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
-update_value = tf.minimum(tf.maximum(tf.exp(updt_value * 5.0) - tf.exp(updt_value), -33333), 300)
-update_value_norm = tf.minimum(tf.maximum(updt_value, -2.8), 100)
+updt_value = sc - logMargX(X1, H0, 0.2*W, 0.2*c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
+update_value = tf.minimum(tf.maximum(tf.exp(updt_value * 5.0) - tf.exp(updt_value), - 1), 300)
+update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 100)
 
 norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
 
@@ -119,15 +119,19 @@ sess = tf.Session()
 init = tf.initialize_all_variables()
 sess.run(init)
 
-norm_hist = []
+norm_const_history = []
 sample_score_hist = []
+h1_mean_hist = []
+
 # loop with batch
-for i in range(1, 10002):
+for i in range(1, 50002):
     alpha = min(0.05, 100.0/float(i))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
     score = 2.0 * muscleTorqueScore(size_x, side_x, x1_)
     sample_score_hist.extend(score.tolist())
+    norm_const_history.extend(sess.run(norm_const))
+
     # print sample_score_hist
     # print "shape of W_", sess.run(tf.shape(W_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(W))
     # print "shape of b_", sess.run(tf.shape(b_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(b))
@@ -136,8 +140,9 @@ for i in range(1, 10002):
     # print "logMargX", sess.run(logMargX(x1, h1, W, c), feed_dict={ sc: score, a: alpha, coldness: 0.00})
     # print "shape of updt_value", sess.run(tf.shape(updt_value), feed_dict={ sc: score, a: alpha, coldness: 0.0}), "value ", sess.run(updt_value, feed_dict={ sc: score, a: alpha, coldness: 0.0})
     sess.run(updt, feed_dict={ sc: score, a: alpha})
+    # h1_mean_hist.append(sess.run(tf.reduce_mean(H1))) 
     print i, ' mean score ', np.mean(score), ' max score ', np.max(score), ' step size ', alpha, ' norm_const ', sess.run(norm_const)
-    # vidualization
+   # vidualization
     if i % 500 == 1:
         image = Image.fromarray(tile_raster_images(sess.run(W).T,
                                                    img_shape=(side_x, side_x),
@@ -156,8 +161,11 @@ for i in range(1, 10002):
         image.show()
         print 'norm_const ', sess.run(norm_const).T
         print 'W ', sess.run(W).T
+        print 'W variant', sess.run(tf.sqrt(tf.reduce_mean(W * W)))
         print 'c ', sess.run(c).T
-        # print 'tiled 3d scalar', sess.run(debug_1, feed_dict={sc: score, a: alpha}).T
+        print 'update_value', sess.run(update_value, feed_dict={sc: score, a: alpha}).T
+        h1_mean_hist.append(sess.run(tf.reduce_mean(H1))) 
+        # print 'norm_const_history', norm_const_history
         # print 'W update pos side 3d', sess.run(debug_2, feed_dict={sc: score, a: alpha}).T
         # print 'W update neg side re-sample 3d', sess.run(debug_3, feed_dict={sc: score, a: alpha}).T
         # print 'W update neg side weighted 3d', sess.run(debug_4, feed_dict={sc: score, a: alpha}).T
@@ -170,6 +178,11 @@ for i in range(1, 10002):
 plt.plot(sample_score_hist)
 plt.show()
 
+plt.plot(norm_const_history)
+plt.show()
+
+plt.plot(h1_mean_hist)
+plt.show()
 
 
 
