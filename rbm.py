@@ -55,7 +55,7 @@ def rbmGibbs(xx, hh, count, k):
     # assh_in1 = h_in.assign(hk)
     return xk, hk, count+1, k
 
-def lessThanK(xx, hk, count, k):
+def lessThanK(xk, hk, count, k):
     return count <= k
 
 ct = tf.constant(1)
