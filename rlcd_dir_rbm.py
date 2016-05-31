@@ -12,12 +12,12 @@ import matplotlib.pyplot as plt
 # size_h is the size of the hidden layer
 size_th_raw = 8
 side_h = 10
-side_x = 8
+side_x = 10
 size_h = side_h * side_h
 repeat_th = side_x * 2
 size_th = repeat_th * size_th_raw
 size_x = side_x * side_x + size_th
-size_bt = 100 # batch size ## TODO support only batch == 1
+size_bt = 10 # batch size ## TODO support only batch == 1
 k = 16
 # helper function
 
@@ -55,7 +55,8 @@ an_step = tf.constant(0.2)
 
 th_o_const = tf.concat(0, [tf.ones([1, size_bt]), tf.zeros([size_th_raw - 1, size_bt])])
 th_o_raw = tf.random_shuffle(th_o_const)
-th_o = tf.tile(th_o_raw, [repeat_th, 1])
+th_o_temp = tf.transpose(tf.tile(tf.expand_dims(th_o_raw, -1), [1, 1, repeat_th]), perm=[1, 0, 2])
+th_o = tf.transpose(tf.reshape(th_o_temp, [size_bt, size_th]))
 x_o = tf.concat(0, [sample(tf.ones([size_x - size_th, size_bt]) * 0.5), th_o])
 h_o = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x_o) + tf.tile(b*0, [1, size_bt])))
 ql_const = tf.constant(0.2)
@@ -157,18 +158,18 @@ for i in range(1, 5002):
    # vidualization
     if i % 500 == 1:
         image = Image.fromarray(tile_raster_images(sess.run(W).T,
-                                                   img_shape=(side_x, side_x + 1),
+                                                   img_shape=(side_x + 2*size_th_raw, side_x),
                                                    tile_shape=(side_h, side_h),
                                                    tile_spacing=(2, 2)))
         image.show()
         image = Image.fromarray(tile_raster_images(sess.run(X1).T,
-                                                   img_shape=(side_x, side_x + 1),
+                                                   img_shape=(side_x + 2*size_th_raw, side_x),
                                                    tile_shape=(side_h, side_h),
                                                    tile_spacing=(2, 2)))
         image.show()
         image = Image.fromarray(tile_raster_images(sess.run(c).T,
-                                                   img_shape=(side_x, side_x + 1),
-                                                   tile_shape=(2, 2),
+                                                   img_shape=(side_x + 2*size_th_raw, side_x),
+                                                   tile_shape=(1, 1),
                                                    tile_spacing=(2, 2)))
         image.show()
         print 'norm_const ', sess.run(norm_const).T
