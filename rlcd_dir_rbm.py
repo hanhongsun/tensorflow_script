@@ -10,11 +10,13 @@ import matplotlib.pyplot as plt
 
 # size_x is the size of the visiable layer
 # size_h is the size of the hidden layer
-size_th = 8
+size_th_raw = 8
 side_h = 10
 side_x = 8
-size_x = side_x * side_x + size_th
 size_h = side_h * side_h
+repeat_th = side_x * 2
+size_th = repeat_th * size_th_raw
+size_x = side_x * side_x + size_th
 size_bt = 100 # batch size ## TODO support only batch == 1
 k = 16
 # helper function
@@ -38,7 +40,7 @@ c = tf.Variable(tf.random_uniform([size_x, 1], -0.05, 0.05))
 H0 = tf.Variable(tf.zeros([size_h, size_bt], tf.float32))
 X1 = tf.Variable(tf.zeros([size_x, size_bt], tf.float32))
 H1 = tf.Variable(tf.zeros([size_h, size_bt], tf.float32))
-TH = tf.Variable(tf.zeros([size_th, size_bt]), tf.float32)
+TH = tf.Variable(tf.zeros([size_th_raw, size_bt]), tf.float32)
 
 a = tf.placeholder(tf.float32)
 coldness = tf.placeholder(tf.float32) # coldness is 1/Temperature
@@ -51,16 +53,17 @@ norm_const = tf.Variable([20.00])
 
 an_step = tf.constant(0.2)
 
-th_o_const = tf.concat(0, [tf.ones([1, size_bt]), tf.zeros([size_th - 1, size_bt])])
-th_o = tf.random_shuffle(th_o_const)
+th_o_const = tf.concat(0, [tf.ones([1, size_bt]), tf.zeros([size_th_raw - 1, size_bt])])
+th_o_raw = tf.random_shuffle(th_o_const)
+th_o = tf.tile(th_o_raw, [repeat_th, 1])
 x_o = tf.concat(0, [sample(tf.ones([size_x - size_th, size_bt]) * 0.5), th_o])
 h_o = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x_o) + tf.tile(b*0, [1, size_bt])))
-
+ql_const = tf.constant(0.2)
 def simAnnealingGibbs(xx, hh, temp_inv): # W c b size_bt an_step # these are globle values
-    xk = tf.concat(0, [tf.slice(sample(tf.sigmoid(tf.matmul(W*temp_inv, hh) + \
-                                                 tf.tile(c*temp_inv, [1, size_bt]))), \
+    xk = tf.concat(0, [tf.slice(sample(tf.sigmoid(tf.matmul(W*temp_inv*ql_const, hh) + \
+                                                 tf.tile(c*temp_inv*ql_const, [1, size_bt]))), \
                                [0, 0], [size_x - size_th, size_bt]), th_o])
-    hk = sample(tf.sigmoid(tf.matmul(tf.transpose(W*temp_inv), xk) + tf.tile(b*temp_inv, [1, size_bt])))
+    hk = sample(tf.sigmoid(tf.matmul(tf.transpose(W*temp_inv*ql_const), xk) + tf.tile(b*temp_inv*ql_const, [1, size_bt])))
     return xk, hk, temp_inv + an_step
 
 def isColdEnough(xx, hh, temp_inv):
@@ -72,7 +75,7 @@ x1 = tf.concat(0, [tf.slice(sample(tf.sigmoid(tf.matmul(W, h0) + tf.tile(c, [1, 
                                [0, 0], [size_x - size_th, size_bt]), th_o])
 h1 = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x1) + tf.tile(b, [1, size_bt])))
 
-sample_data = [H0.assign(h0), X1.assign(x1), H1.assign(h1), TH.assign(th_o)]
+sample_data = [H0.assign(h0), X1.assign(x1), H1.assign(h1), TH.assign(th_o_raw)]
 
 def logMargX(x, h, W, c):
     prob_all1 = tf.matmul(W, h) + tf.tile(c, [1, size_bt])
@@ -82,8 +85,8 @@ def logMargX(x, h, W, c):
     return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True))
 
 # define the update rule
-updt_value = sc - logMargX(X1, H0, 0.2*W, 0.2*c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
-update_value = tf.minimum(tf.maximum(tf.exp(updt_value * 5.0) - tf.exp(updt_value), - 1), 300)
+updt_value = sc - logMargX(X1, H0, ql_const*W, ql_const*c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
+update_value = tf.minimum(tf.maximum(tf.exp(updt_value / ql_const) - tf.exp(updt_value), - 1), 300)
 update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 100)
 
 norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
@@ -137,7 +140,7 @@ for i in range(1, 5002):
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
     theta = sess.run(tf.to_float(tf.argmax(TH, 0)) * (3.1415926535/4))
-    score = 2.0 * muscleDirectTorqueScore(size_x - size_th, side_x, x1_[0:size_x - size_th, :], theta)
+    score = 10.0 * sess.run(ql_const) * muscleDirectTorqueScore(size_x - size_th, side_x, x1_[0:size_x - size_th, :], theta)
     sample_score_hist.extend(score.tolist())
     norm_const_history.extend(sess.run(norm_const))
 
