@@ -15,7 +15,7 @@ side_x = 10
 size_x = side_x * side_x
 size_h = side_h * side_h
 size_bt = 100 # batch size ## TODO support only batch == 1
-k = 16
+k = 8
 # helper function
 
 def sample(probs):
@@ -25,10 +25,10 @@ def sampleInt(probs):
     return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
 
 def scalePosNegOne(vec):
-    return tf.add(1.0, tf.mul(2.0, vec))
+    return tf.add(-1.0, tf.mul(2.0, vec))
 
 def scalePosNegOneInt(vec):
-    return tf.add(1, tf.mul(2, vec))
+    return tf.add(-1, tf.mul(2, vec))
 
 # define parameters
 b = tf.Variable(tf.random_uniform([size_h, 1], -0.05, 0.05))
@@ -45,14 +45,14 @@ sc = tf.placeholder(tf.float32, [1, size_bt]) # place holder for returned score
 # define the Simulated annealing sampling graph
 # cold_target = tf.placeholder(tf.float32)
 # the const number for this
-norm_const = tf.Variable([20.00])
+exp_norm_const = tf.Variable([20.00])
 
 an_step = tf.constant(0.2)
 
 x_o = sample(tf.ones([size_x, size_bt]) * 0.5)
 h_o = sample(tf.sigmoid(tf.matmul(tf.transpose(W)*0, x_o) + tf.tile(b*0, [1, size_bt])))
 
-ql_const = tf.constant(0.2)
+ql_const = tf.constant(1.0)
 
 def simAnnealingGibbs(xx, hh, temp_inv):
     xk = sample(tf.sigmoid(tf.matmul(W*temp_inv*ql_const, hh) + tf.tile(c*temp_inv*ql_const, [1, size_bt])))
@@ -77,11 +77,14 @@ def logMargX(x, h, W, c):
     return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True))
 
 # define the update rule
-updt_value = sc - logMargX(X1, H0, ql_const*W, ql_const*c) - tf.tile(tf.expand_dims(norm_const, -1), [1, size_bt])
-update_value = tf.minimum(tf.maximum(tf.exp(updt_value / ql_const) - tf.exp(updt_value), - 1), 300)
-update_value_norm = tf.minimum(tf.maximum(updt_value, -1), 100)
-
-norm_const_ = tf.mul(tf.reduce_mean(update_value_norm, 1), 2*a)
+def update_lambda(updt):
+    return tf.mul(tf.exp(updt), updt)
+log_p_x = logMargX(X1, H0, ql_const*W, ql_const*c)
+log_q_x = sc - tf.tile(tf.expand_dims(tf.log(exp_norm_const), -1), [1, size_bt])
+updt_value = log_q_x - log_p_x
+update_value = tf.minimum(tf.maximum(update_lambda(updt_value), - 10), 100)
+new_exp_norm_const = tf.exp(sc - log_p_x)
+exp_norm_const_ = tf.mul(tf.reduce_mean(new_exp_norm_const - tf.tile(tf.expand_dims(exp_norm_const, -1), [1, size_bt]), 1), 2*a)
 
 # x2 = sample(tf.sigmoid(tf.matmul(W, H1) + tf.tile(c, [1, size_bt])))
 # h2 = sample(tf.sigmoid(tf.matmul(tf.transpose(W), x2) + tf.tile(b, [1, size_bt])))
@@ -111,9 +114,9 @@ W_ = a/float(size_bt) * tf.reduce_mean(tf.sub(tf.batch_matmul(tf.expand_dims(tf.
 b_ = a * tf.reduce_mean(tf.mul(tf.sub(H1, h2), tf.tile(update_value, [size_h, 1])), 1, True)
 c_ = a * tf.reduce_mean(tf.mul(tf.sub(X1, x2), tf.tile(update_value, [size_x, 1])), 1, True)
 
-# norm_const
+# exp_norm_const
 # TODO not done, add the self engergy function estimation
-updt = [W.assign_add(W_), b.assign_add(b_), c.assign_add(c_), norm_const.assign_add(norm_const_)]
+updt = [W.assign_add(W_), b.assign_add(b_), c.assign_add(c_), exp_norm_const.assign_add(exp_norm_const_)]
 
 # run session
 
@@ -126,24 +129,24 @@ sample_score_hist = []
 h1_mean_hist = []
 
 # loop with batch
-for i in range(1, 50002):
-    alpha = min(0.05, 100.0/float(i))
+for i in range(1, 5002):
+    alpha = min(0.05, 100.0/(float(i)**0.75))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
     score = 10.0 *sess.run(ql_const)* muscleTorqueScore(size_x, side_x, x1_)
     sample_score_hist.extend(score.tolist())
-    norm_const_history.extend(sess.run(norm_const))
+    norm_const_history.extend(sess.run(tf.log(exp_norm_const)))
 
     # print sample_score_hist
     # print "shape of W_", sess.run(tf.shape(W_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(W))
     # print "shape of b_", sess.run(tf.shape(b_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(b))
     # print "shape of c_", sess.run(tf.shape(c_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(c))
-    # print "shape of norm_const_", sess.run(tf.shape(norm_const_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(norm_const))
+    # print "shape of exp_norm_const_", sess.run(tf.shape(exp_norm_const_), feed_dict={ sc: score, a: alpha, coldness: 0.0}), sess.run(tf.shape(exp_norm_const))
     # print "logMargX", sess.run(logMargX(x1, h1, W, c), feed_dict={ sc: score, a: alpha, coldness: 0.00})
     # print "shape of updt_value", sess.run(tf.shape(updt_value), feed_dict={ sc: score, a: alpha, coldness: 0.0}), "value ", sess.run(updt_value, feed_dict={ sc: score, a: alpha, coldness: 0.0})
     sess.run(updt, feed_dict={ sc: score, a: alpha})
     # h1_mean_hist.append(sess.run(tf.reduce_mean(H1))) 
-    print i, ' mean score ', np.mean(score), ' max score ', np.max(score), ' step size ', alpha, ' norm_const ', sess.run(norm_const)
+    print i, ' mean score ', np.mean(score), ' max score ', np.max(score), ' step size ', alpha, ' exp_norm_const ', sess.run(exp_norm_const)
    # vidualization
     if i % 500 == 1:
         image = Image.fromarray(tile_raster_images(sess.run(W).T,
@@ -161,13 +164,13 @@ for i in range(1, 50002):
                                                    tile_shape=(2, 2),
                                                    tile_spacing=(2, 2)))
         image.show()
-        print 'norm_const ', sess.run(norm_const).T
+        print 'exp_norm_const ', sess.run(exp_norm_const).T
         print 'W ', sess.run(W).T
         print 'W variant', sess.run(tf.sqrt(tf.reduce_mean(W * W)))
         print 'c ', sess.run(c).T
         print 'update_value', sess.run(update_value, feed_dict={sc: score, a: alpha}).T
         h1_mean_hist.append(sess.run(tf.reduce_mean(H1))) 
-        # print 'norm_const_history', norm_const_history
+        # print 'exp_norm_const_history', exp_norm_const_history
         # print 'W update pos side 3d', sess.run(debug_2, feed_dict={sc: score, a: alpha}).T
         # print 'W update neg side re-sample 3d', sess.run(debug_3, feed_dict={sc: score, a: alpha}).T
         # print 'W update neg side weighted 3d', sess.run(debug_4, feed_dict={sc: score, a: alpha}).T
