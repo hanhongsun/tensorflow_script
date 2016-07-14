@@ -1,4 +1,4 @@
-from mt_reward import muscleTorqueScore
+from mt_reward import muscleTorqueScore, muscleDirectTorqueScore
 import tensorflow as tf
 import Image
 import numpy as np
@@ -14,7 +14,7 @@ side_h = 10
 side_x = 10
 size_x = side_x * side_x
 size_h = side_h * side_h
-size_bt = 100 # batch size ## TODO support only batch == 1
+size_bt = 100 # batch size
 k = 8
 # helper function
 
@@ -73,8 +73,8 @@ def logMargX(x, h, W, c):
     prob_all1 = tf.matmul(W, h) + tf.tile(c, [1, size_bt])
     # log_matrix has the DIM[0] the position of batch in h and DIM[1] the position of batch in x
     log_matrix = tf.reduce_sum(tf.tile(tf.expand_dims(prob_all1, -1), [1, 1, size_bt]) * \
-        tf.transpose(tf.tile(tf.expand_dims(scalePosNegOne(x), -1), [1, 1, size_bt]), [0, 2, 1]), 1)
-    return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True))
+        tf.transpose(tf.tile(tf.expand_dims(scalePosNegOne(x), -1), [1, 1, size_bt]), [0, 2, 1]), 0)
+    return tf.log(tf.reduce_mean(tf.sigmoid(log_matrix), 0, True)) # TODO know which transpose is correct!!!!!!!!!!!!
 
 # define the update rule
 def update_lambda(updt):
@@ -133,7 +133,7 @@ for i in range(1, 5002):
     alpha = min(0.05, 100.0/(float(i)**0.75))
     sess.run(sample_data, feed_dict={coldness: 0.0})
     x1_ = sess.run(X1)
-    score = 10.0 *sess.run(ql_const)* muscleTorqueScore(size_x, side_x, x1_)
+    score = 10.0 *sess.run(ql_const)* muscleDirectTorqueScore(size_x, side_x, x1_, 0.0)
     sample_score_hist.extend(score.tolist())
     norm_const_history.extend(sess.run(tf.log(exp_norm_const)))
 
