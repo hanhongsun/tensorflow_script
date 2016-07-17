@@ -3,14 +3,15 @@
 
 # TODO train the normal_const
 # TODO set the train rule
+# TODO tf.stop_gradient(tensor)
 
 # score function
-from mt_reward import muscleTorqueScore
+from mt_reward import muscleTorqueScore, muscleDirectTorqueScore
 
 import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import control_flow_ops
-import math
+import math, copy
 #??? how to use tensorboard to visualize
 
 # display choice 1
@@ -88,14 +89,13 @@ class ReinforcementLearningDGN(object):
 
     def _create_network(self):
         # Initialize the weights and biases for DGN
-        network_params = self._initialize_params()
-        self.tf_weights_list = network_params[0]
-        self.tf_bias_list = network_params[1]
+        self._initialize_params()
         
         # Initialize the batched samples and weight variables
         batch_sample_vars = self._define_batch_samples()
-        self.tf_sp_var_list = batch_sample_vars[0]
-        self.tf_spw_var_list = batch_sample_vars[1]
+        self.tf_spb_var_list = batch_sample_vars[1]
+        self.tf_sp_var_list = batch_sample_vars[1]
+        self.tf_spw_var_list = batch_sample_vars[2]
         
         # Build the forward generate rule with importance sampling p(h) estimation
         self.sample_handle = self._tf_sample_generator()
@@ -106,29 +106,41 @@ class ReinforcementLearningDGN(object):
         archit = self.network_architecture
         weights_list = []
         bias_list = [tf.Variable(tf.zeros([archit[0], 1], dtype=tf.float32))]
+        updt_w_list = []
+        updt_b_list = [tf.Variable(tf.zeros([archit[0], 1], dtype=tf.float32))]
         depth = len(archit) - 1
         for i in range(depth):
             n = archit[i]
             m = archit[i+1]
             w = tf.Variable(tf.random_uniform([n, m], -0.05, 0.05, dtype=tf.float32))
             b = tf.Variable(tf.zeros([m, 1], dtype=tf.float32))
+            w_updt_v = tf.Variable(tf.zeros([n, m], dtype=tf.float32))
+            b_updt_v = tf.Variable(tf.zeros([m, 1], dtype=tf.float32))
             weights_list.append(w)
             bias_list.append(b)
-        return weights_list, bias_list
+            updt_w_list.append(w_updt_v)
+            updt_b_list.append(b_updt_v)
+        self.updt_w_list = updt_w_list
+        self.updt_b_list = updt_b_list
+        self.tf_weights_list = weights_list
+        self.tf_bias_list = bias_list
+        return
 
     def _define_batch_samples(self):
         archit = self.network_architecture
+        samp_prob1_var_list = [tf.Variable(tf.zeros([archit[0], self.batch_size]))]
         sample_var_list = [tf.Variable(tf.zeros([archit[0], self.batch_size]))]
         samp_w_var_list = [tf.Variable(tf.ones([1, self.batch_size]))]
         depth = len(archit) - 1
         for i in range(depth):
             n = archit[i]
             m = archit[i+1]
+            pb = tf.Variable(tf.zeros([m, self.batch_size], dtype=tf.float32))
             sp = tf.Variable(tf.zeros([m, self.batch_size])) # binaris eventually, type can be optimized
             spw = tf.Variable(tf.zeros([1, self.batch_size])) # top layer don't have a weight
             sample_var_list.append(sp)
             samp_w_var_list.append(spw)
-        return sample_var_list, samp_w_var_list
+        return samp_prob1_var_list, sample_var_list, samp_w_var_list
 
     # The generative model sample from top down.
     # For multiple layers, this requires a batch of samples to estimate the marginal probability
@@ -138,6 +150,7 @@ class ReinforcementLearningDGN(object):
     def _tf_sample_generator(self):
         archit = self.network_architecture
         depth = len(archit) - 1
+        self.samp_prob_var_list = [] # top layer is just the bias
         self.sample_tfhl_list = [sampleInt( self.transfer_fun(self.tf_bias_list[depth]))]
         self.samp_w_tfhl_list = [tf.ones([1, self.batch_size])]
         sample_handle = []
@@ -145,10 +158,12 @@ class ReinforcementLearningDGN(object):
         for i in range(depth-1, -1, -1): # not include top one
             n = archit[i]
             m = archit[i+1]
-            sp = sampleInt(self.transfer_fun(tf.matmul(self.tf_weights_list[i], self.sample_tfhl_list[0])
-                                             + tf.tile(self.tf_bias_list[i], 
-                                                       [1, self.batch_size])))
-            assign_handle = self.tf_sp_var_list[i].assign(sp)
+            spb = self.transfer_fun(tf.matmul(self.tf_weights_list[i], self.sample_tfhl_list[0]) +\
+                  tf.tile(self.tf_bias_list[i], [1, self.batch_size]))
+            # we need to save the prob of sample
+            sp = sampleInt(spb)
+            spb_assign_handle = self.tf_spb_var_list[i].assign(spb)
+            sp_assign_handle = self.tf_sp_var_list[i].assign(sp)
             #compute_importance_weight(Hi+1, Hi, H_wi+1, W, b)
             spw = compute_importance_weight(self.tf_sp_var_list[i + 1],
                                             self.tf_sp_var_list[i],
@@ -157,42 +172,88 @@ class ReinforcementLearningDGN(object):
                                             self.tf_bias_list[i],
                                             self.batch_size)
 
-            sample_handle.extend([assign_handle, self.tf_spw_var_list[i].assign(spw)])
+            sample_handle.extend([sp_assign_handle, self.tf_spw_var_list[i].assign(spw), ])
             self.sample_tfhl_list.insert(0, sp)
             self.samp_w_tfhl_list.insert(0, spw)
         return sample_handle
 
+    # hope tensor will take this overload form.
+    def _derivative_sigmoid_x(self, sigmoid_x):
+        return sigmoid_x * (1 - sigmoid_x)
+
+    # input the error: e
+    # param weight: W, bias: b
+    # data prob1: p, sample from p: s, sample from higher level: s_h
+    # control arguement, size low: size_l, last_layer == True then only b_ update
+    # return upper level of error: e_1, additive update of W: W_, additive update of b: b_
+    def _back_propagate_one_layer(self, W, p, s, s_h, e, last_layer):
+        delta = tf.mul(tf.mul(e, scalePosNegOne(s)), self._derivative_sigmoid_x(p))
+        # we assert when e[i] != 0 then s[i] == 1 because s[i] was used to compute e[i]
+        b_ = tf.reduce_mean(delta, 1, True)
+        if last_layer:
+            W_ = None
+            e_h = None
+        else:
+            # we need to do a cross product of delta and s_h  W_bt_ and mean on the batch to get W_
+            # size(W) = (size_l, size_h), size(delta) = (size_l, size_bt), size(s_h) = (size_h, size_bt)
+            # delta ==> delta_t with size (size_bt, size_l, 1)
+            # s_h ==> s_h_t with size (size_bt, 1, size_h)
+            # W_bt_t_ (size_bt, size_l, sizeh) = tf.batch_matmul()
+            delta_t = tf.expand_dims(tf.transpose(delta), 2)
+            s_h_t = tf.expand_dims(tf.transpose(s_h), 1)
+            W_bt_t_ = tf.batch_matmul(delta_t, s_h_t)
+            W_ = tf.reduce_mean(W_bt_t_, 0)
+            e_h = tf.matmul(tf.transpose(W), delta)
+        return  b_, W_, e_h
+
+
     # the target optimizer will be used in the BP algorithm handled by tenserflow later.
     def _create_target_optimizer(self):
-        
+        archit = self.network_architecture
+        depth = len(archit) - 1
+        # 
         log_q_x = self.tf_ph_score - tf.tile(tf.expand_dims(tf.log(self.exp_norm_const), -1), [1, self.batch_size])
         log_p_x = tf.log(self.tf_spw_var_list[0])
         error_KLdiv = log_q_x - log_p_x
-        self.cost = tf.reduce_mean(\
-            tf.square(tf.mul(tf.exp(error_KLdiv), error_KLdiv)),
-            1)
+        error = [tf.mul(tf.exp(error_KLdiv), error_KLdiv)] # top level, with exponential adjustment
+        update_handle = []
+        for i in range(depth-1): # not include top one
 
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+            b_, W_, e_h = self._back_propagate_one_layer(self.tf_weights_list[i], \
+                               self.tf_spb_var_list[i], \
+                               self.tf_sp_var_list[i], \
+                               self.tf_sp_var_list[i+1],
+                               error[i], False)
+            error.append(e_h)
+            update_handle.extend([self.tf_bias_list[i].assign_add(tf.mul(self.learning_rate, b_)), \
+                self.tf_weights_list[i].assign_add(tf.mul(self.learning_rate, W_))])
 
+        b_, W_, e_h = self._back_propagate_one_layer(None, \
+                           self.tf_spb_var_list[depth-1], \
+                           self.tf_sp_var_list[depth-1], \
+                           None,
+                           error[depth-1], True)
+        error.append(e_h)
+        update_handle.append(self.tf_bias_list[depth-1].assign_add(tf.mul(self.learning_rate, b_)))
+        # this is the update for the norm
         new_exp_norm_const = tf.exp(self.tf_ph_score - log_p_x)
-        self.exp_norm_const_ = tf.mul(tf.reduce_mean(new_exp_norm_const -\
+        exp_norm_const_ = tf.mul(tf.reduce_mean(new_exp_norm_const -\
                                                     tf.tile(tf.expand_dims(self.exp_norm_const, -1),\
                                                                            [1, self.batch_size]),\
                                                 1),\
-                                 4*self.learning_rate)
-        return
+                                 2*self.learning_rate)
+        update_handle.append(self.exp_norm_const.assign_add(tf.mul(self.learning_rate, exp_norm_const_)))
+        self.update = update_handle
+        return error 
        
     def _update(self, side_x):
         # run the sample_handle will do a new round of sample and save into variables
         self.sess.run(self.sample_handle)
         # read from the variables the bottom level x and ask for score
         x = self.sess.run(self.tf_sp_var_list[0])
-        score = 1.0 * muscleTorqueScore(side_x*side_x, side_x, x)
-        # feed the optimizer with the score and update the weight and bias
-        opt, cost = self.sess.run((self.optimizer, self.cost), 
-                                  feed_dict={self.tf_ph_score: score})
-        # update the exp_norm_const from the variables stored
-        update_norm_const = self.exp_norm_const.assign_add(self.exp_norm_const_)
+        score = 1.0 * muscleDirectTorqueScore(side_x*side_x, side_x, x, 0)
+        # feed the optimizer with the score and update the weight and bias and the exp_norm_const
+        opt, cost = self.sess.run(self.update, feed_dict={self.tf_ph_score: score})
         return cost, score
 
 def display(M, side_i, side_t):
@@ -249,6 +310,15 @@ def test():
         return False
     return
 
+def sigmoid(x):
+  return 1.0 / (1.0 + math.exp(float(-x)))
+
+def sigmoid_list(X):
+  return [sigmoid(x) for x in X ]
+
+def sigmoid_dlist(X):
+  return [sigmoid_list(x) for x in X ]
+
 def test_compute_importance_weight():
     # sizes
     batch_size = 5
@@ -276,10 +346,22 @@ def test_compute_importance_weight():
     W = [[1, 0, 0], [0, 1, -1], [-1, 0 ,1], [0, -1, 1]]
     B_h_t = [[0, 0, 0, 0]]
     B_h = zip(*B_h_t)
-    # 
-    #print (Sp, Sp_h, W)
-    print ("The output", sess.run(spw, feed_dict={sp_h: Sp_h, sp: Sp, spw_h: Spw_h, w: W, b_h: B_h}))
-
+    # test
+    output = sess.run(spw, feed_dict={sp_h: Sp_h, sp: Sp, spw_h: Spw_h, w: W, b_h: B_h})
+    print ("The output", output)
+    true_result_pre_mean = sigmoid_dlist([[1, 0, -2, -2, 1], [-3, 2, 0, 2, -1], [1, -2, 2, 0, -1], [-1, 0, 2, 2, -1], [-1, 2, -2, 0, 1]])
+    for i in range(batch_size):
+        assert abs(sum(true_result_pre_mean[i])/float(batch_size) - output[0][i]) < 1.0e-5
+    # with actual weight
+    Spw_h = [[1.0, 0.2, 1.0, 0.2, 1.0]]
+    output = sess.run(spw, feed_dict={sp_h: Sp_h, sp: Sp, spw_h: Spw_h, w: W, b_h: B_h})
+    print ("The output", output)
+    true_result_pre_mean = sigmoid_dlist([[1, 0, -2, -2, 1], [-3, 2, 0, 2, -1], [1, -2, 2, 0, -1], [-1, 0, 2, 2, -1], [-1, 2, -2, 0, 1]])
+    for i in range(batch_size):
+        true_result_pre_mean_weighted = copy.copy(true_result_pre_mean[i])
+        for j in range(batch_size):
+            true_result_pre_mean_weighted[j] *= Spw_h[0][j]
+        assert abs(sum(true_result_pre_mean_weighted)/float(batch_size) - output[0][i]) < 1.0e-5
     return
 
 if __name__ == "__main__":
