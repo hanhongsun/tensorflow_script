@@ -1,7 +1,7 @@
 # in this file, we are trying to program a naive reinforcement learning deep generated model
 # Author Di Sun
 
-# TODO train the normal_const
+
 # TODO set the train rule
 # TODO tf.stop_gradient(tensor)
 
@@ -54,7 +54,7 @@ def compute_importance_weight(sp_h, sp, spw_h, w, b_h, batch_size):
     # sigmoid then unnormalized_weight 
     weighted_sigmoid_matrix = tf.sigmoid(log_matrix) * tf.tile(tf.transpose(spw_h), [1, batch_size])
     # weighted mean readuce_mean
-    return tf.clip_by_value(tf.reduce_mean(weighted_sigmoid_matrix, 0, True),1e-10, 1e35)
+    return tf.clip_by_value(tf.reduce_mean(weighted_sigmoid_matrix, 0, True), 1e-35, 1e35)
 
 
 # hope tensor will take this overload form.
@@ -201,12 +201,12 @@ class ReinforcementLearningDGN(object):
             #compute_importance_weight(Hi+1, Hi, H_wi+1, W, b)
             spw = compute_importance_weight(self.sample_tfhl_list[0],
                                             sp,
-                                            self.samp_w_var_list[0],
+                                            self.samp_w_tfhl_list[0],
                                             self.weights_list[i],
                                             self.bias_list[i],
                                             self.batch_size)
-
-            sample_handle.extend([sp_assign_handle, self.samp_w_var_list[i].assign(spw), spb_assign_handle])
+            spw_assign_handle = self.samp_w_var_list[i].assign(spw)
+            sample_handle.extend([sp_assign_handle, spw_assign_handle, spb_assign_handle])
             self.samp_prob1_tfhl_list.insert(0, spb)
             self.sample_tfhl_list.insert(0, sp)
             self.samp_w_tfhl_list.insert(0, spw)
@@ -222,19 +222,20 @@ class ReinforcementLearningDGN(object):
         log_q_x = self.tf_ph_score - tf.tile(tf.expand_dims(tf.log(self.exp_norm_const), -1), [1, self.batch_size])
         log_p_x = tf.log(self.samp_w_var_list[0])
         error_KLdiv = log_q_x - log_p_x
-        #error = [tf.tile(error_KLdiv, [archit[0], 1])]
+        # error = [tf.tile(error_KLdiv, [archit[0], 1])]
         error = [tf.tile(tf.mul(tf.exp(error_KLdiv), error_KLdiv), [archit[0], 1])] # top level, with exponential adjustment
         update_handle = []
         for i in range(depth): # not include top one
-
             b_, W_, e_h = back_propagate_one_layer(self.weights_list[i], \
                                self.samp_prob1_var_list[i], \
                                self.samp_var_list[i], \
                                self.samp_var_list[i+1],
                                error[i], False)
             error.append(e_h)
-            update_handle.extend([self.updt_b_list[i].assign(tf.mul(self.learning_rate, b_)), \
-                self.updt_w_list[i].assign(tf.mul(self.learning_rate, W_))])
+            update_handle.extend([self.bias_list[i].assign_add(tf.mul(self.learning_rate, b_)), \
+                self.weights_list[i].assign_add(tf.mul(self.learning_rate, W_)), \
+                self.updt_b_list[i].assign(b_),\
+                self.updt_w_list[i].assign(W_)])
 
         [b_, _, _] = back_propagate_one_layer(None, \
                            self.samp_prob1_var_list[depth], \
@@ -242,27 +243,30 @@ class ReinforcementLearningDGN(object):
                            None,
                            error[depth], True)
         # error.append(e_h)
-        update_handle.append(self.updt_b_list[depth].assign(tf.mul(self.learning_rate, b_)))
+        update_handle.append(self.bias_list[depth].assign_add(tf.mul(self.learning_rate, b_)))
+        update_handle.append(self.updt_b_list[depth].assign(b_))
         # this is the update for the norm
         new_exp_norm_const = tf.exp(self.tf_ph_score - log_p_x)
-        exp_norm_const_ = tf.clip_by_value(tf.mul(tf.reduce_mean(new_exp_norm_const -\
-                                                                 tf.tile(tf.expand_dims(self.exp_norm_const, -1),\
-                                                                            [1, self.batch_size]),\
-                                                        1), 2*self.learning_rate), 1e-10, 1e35)
-        update_handle.append(self.exp_norm_const.assign_add(tf.mul(self.learning_rate, exp_norm_const_)))
+        exp_norm_const_ = tf.reduce_mean(new_exp_norm_const - tf.tile(tf.expand_dims(self.exp_norm_const, -1), [1, self.batch_size]), 1)
+        self.update_enc_handle = self.exp_norm_const.assign(tf.clip_by_value(self.exp_norm_const + tf.mul(2.0*self.learning_rate, exp_norm_const_), 1e-35, 1e35))
+        update_handle.append(self.update_enc_handle)
         self.update_handle = update_handle
         self.exp_norm_const_ = exp_norm_const_
         return error, log_q_x, log_p_x
        
-    def _update(self, side_x):
+    def _update(self, side_x, pre_update_enc):
         # check_op = tf.add_check_numerics_ops()
         # run the sample_handle will do a new round of sample and save into variables
         self.sess.run(self.sample_handle)
         # read from the variables the bottom level x and ask for score
         x = self.sess.run(self.samp_var_list[0])
-        score = 10.0 * muscleDirectTorqueScore(side_x*side_x, side_x, x, 0)
+        # score = 10.0 * muscleDirectTorqueScore(side_x*side_x, side_x, x, 0)
+        score = 10.0 * muscleTorqueScore(side_x*side_x, side_x, x)
         # feed the optimizer with the score and update the weight and bias and the exp_norm_const
-        self.sess.run(self.update_handle, feed_dict={self.tf_ph_score: score})
+        if pre_update_enc:
+            self.sess.run(self.update_enc_handle, feed_dict={self.tf_ph_score: score})
+        else:
+            self.sess.run(self.update_handle, feed_dict={self.tf_ph_score: score})
         return score
 
 def display(M, side_i, side_t):
@@ -283,28 +287,42 @@ def train(network_architecture, learning_rate,
     side_b = int(math.sqrt(batch_size)+ 0.1)
     side_x = int(math.sqrt(network_architecture[0])+ 0.1)
     side_h1 = int(math.sqrt(network_architecture[1])+ 0.1)
-    # side_h2 = int(math.sqrt(network_architecture[2])+ 0.1)
+    side_h2 = int(math.sqrt(network_architecture[2])+ 0.1)
+
+    # We need to pre update the norm_const so that it do not explod
+    for epoch in range(2):
+        print "norm_const before update", rldgn.sess.run(rldgn.debug_norm_const)
+        score = rldgn._update(side_x, True)
+        print "self.tf_ph_score - log_p_x", rldgn.sess.run(rldgn.tf_ph_score - rldgn.log_p_x, feed_dict={rldgn.tf_ph_score: score})
+        print "exp_norm_const_", rldgn.sess.run(rldgn.exp_norm_const_, feed_dict={rldgn.tf_ph_score: score})
+        print "log_p_x", rldgn.sess.run(rldgn.log_p_x, feed_dict={rldgn.tf_ph_score: score})
+        print "weight_var 0", rldgn.sess.run(rldgn.samp_w_var_list[0])
+        print "weight_var 1", rldgn.sess.run(rldgn.samp_w_var_list[1])
+        # print "Epoch:", '%04d' % (epoch+1), \
+        #       "score=", score
+
     for epoch in range(training_epochs):
         # update one batch
         print "norm_const before update", rldgn.sess.run(rldgn.debug_norm_const)
-        score = rldgn._update(side_x)
+        score = rldgn._update(side_x, False)
         # Display logs per epoch step
         if epoch % display_step == 0:
             print "Epoch:", '%04d' % (epoch+1), \
                   "score=", score
             display(rldgn.sess.run(rldgn.samp_var_list[0]).T, side_x, side_b)
             display(rldgn.sess.run(rldgn.weights_list[0]).T, side_x, side_h1)
-            # display(rldgn.sess.run(rldgn.weights_list[1]).T, side_h1, side_h2)
+            display(rldgn.sess.run(rldgn.weights_list[1]).T, side_h1, side_h2)
             print "weight_var 0", rldgn.sess.run(rldgn.samp_w_var_list[0])
             print "weight_var 1", rldgn.sess.run(rldgn.samp_w_var_list[1])
+            print "weight_var 2", rldgn.sess.run(rldgn.samp_w_var_list[2])
             print "updt weight 0", rldgn.sess.run(rldgn.updt_w_list[0])
             print "updt bias 0", rldgn.sess.run(tf.transpose(rldgn.updt_b_list[0]))
             # print "updt weight 1", rldgn.sess.run(rldgn.updt_w_list[1])
             # print "updt bias 1", rldgn.sess.run(tf.transpose(rldgn.updt_b_list[1]))
             print "error 1", rldgn.sess.run(rldgn.error_list[1], feed_dict={rldgn.tf_ph_score: score})
-            print "exp_norm_const_", rldgn.sess.run(rldgn.exp_norm_const_, feed_dict={rldgn.tf_ph_score: score})
             print "log_p_x", rldgn.sess.run(rldgn.log_p_x, feed_dict={rldgn.tf_ph_score: score})
             print "log_q_x", rldgn.sess.run(rldgn.log_q_x, feed_dict={rldgn.tf_ph_score: score})
+            # print "self.tf_ph_score - log_p_x", rldgn.sess.run(rldgn.tf_ph_score - rldgn.log_p_x, feed_dict={rldgn.tf_ph_score: score})
         # in training display go here as a function.
         print "epoch ", epoch
     return rldgn
@@ -313,7 +331,7 @@ def main():
     # unit test some functions
     test()
     # train
-    train([100, 9], 0.001, 49, training_epochs = 2001, display_step = 100)
+    train([100, 36, 9], 0.01, 100, training_epochs = 5000, display_step = 100)
     # post display
 
 def test():
@@ -332,6 +350,39 @@ def sigmoid_list(X):
 
 def sigmoid_dlist(X):
   return [sigmoid_list(x) for x in X ]
+
+def test_back_propagate_one_layer():
+    # sizes
+    batch_size = 5
+    high_size = 3
+    low_size = 4
+    # tf placeholder
+    W = tf.placeholder(tf.float32, [low_size, high_size])
+    p = tf.placeholder(tf.float32, [low_size, batch_size])
+    s = tf.placeholder(tf.float32, [low_size, batch_size])
+    s_h = tf.placeholder(tf.float32, [high_size, batch_size])
+    e = tf.placeholder(tf.float32, [low_size, batch_size])
+    # actual handle
+    bp_true = back_propagate_one_layer(W, p, s, s_h, e, True)
+    bp_false = back_propagate_one_layer(None, p, s, None, e, False)
+    # session setup
+    sess = tf.Session()
+    init = tf.initialize_all_variables()
+    sess.run(init)
+    # test input value setup
+    W = [[1, 0, 0], [0, 1, -1], [-1, 0 ,1], [0, -1, 1]]
+    P_t = [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 1], [1, 1, 0, 1], [0, 1, 1, 0]]
+    P = zip(*Sp_t)
+    S_t = [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 1], [1, 1, 0, 1], [0, 1, 1, 0]]
+    S = zip(*Sp_t)
+    S_h_t = [ [0, 0, 1], [0, 1, 0], [1, 0, 0], [1, 1, 0], [0, 1, 1]]
+    S_h = zip(*Sp_h_t)
+    E_t = [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 1], [1, 1, 0, 1], [0, 1, 1, 0]]
+    E = zip(*Sp_t)
+    # test output value setup
+
+    # test
+    return
 
 def test_compute_importance_weight():
     # sizes
