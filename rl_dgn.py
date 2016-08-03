@@ -223,7 +223,8 @@ class ReinforcementLearningDGN(object):
         log_p_x = tf.log(self.samp_w_var_list[0])
         error_KLdiv = log_q_x - log_p_x
         # error = [tf.tile(error_KLdiv, [archit[0], 1])]
-        error = [tf.tile(tf.mul(tf.exp(error_KLdiv), error_KLdiv), [archit[0], 1])] # top level, with exponential adjustment
+        # error = [tf.tile(tf.mul(tf.exp(tf.mul(0.5, error_KLdiv)), error_KLdiv), [archit[0], 1])] # top level, with exponential adjustment
+        error = [tf.clip_by_value(tf.tile(tf.mul(tf.exp(error_KLdiv), error_KLdiv), [archit[0], 1]), -100.0, 100.0)] # top level, with exponential adjustment
         update_handle = []
         for i in range(depth): # not include top one
             b_, W_, e_h = back_propagate_one_layer(self.weights_list[i], \
@@ -248,7 +249,7 @@ class ReinforcementLearningDGN(object):
         # this is the update for the norm
         new_exp_norm_const = tf.exp(self.tf_ph_score - log_p_x)
         exp_norm_const_ = tf.reduce_mean(new_exp_norm_const - tf.tile(tf.expand_dims(self.exp_norm_const, -1), [1, self.batch_size]), 1)
-        self.update_enc_handle = self.exp_norm_const.assign(tf.clip_by_value(self.exp_norm_const + tf.mul(2.0*self.learning_rate, exp_norm_const_), 1e-35, 1e35))
+        self.update_enc_handle = self.exp_norm_const.assign(tf.clip_by_value(self.exp_norm_const + tf.mul(10.0*self.learning_rate, exp_norm_const_), 1e-35, 1e35))
         update_handle.append(self.update_enc_handle)
         self.update_handle = update_handle
         self.exp_norm_const_ = exp_norm_const_
@@ -303,10 +304,11 @@ def train(network_architecture, learning_rate,
 
     for epoch in range(training_epochs):
         # update one batch
-        print "norm_const before update", rldgn.sess.run(rldgn.debug_norm_const)
+        rldgn.learning_rate = min(learning_rate, 10.0/(float(epoch + 1)**0.75))
+        print "norm_const before update", rldgn.sess.run(rldgn.debug_norm_const), "[learning_rate] \t", rldgn.learning_rate
         score = rldgn._update(side_x, False)
         # Display logs per epoch step
-        if epoch % display_step == 0:
+        if (epoch + 1) % display_step == 0:
             print "Epoch:", '%04d' % (epoch+1), \
                   "score=", score
             display(rldgn.sess.run(rldgn.samp_var_list[0]).T, side_x, side_b)
