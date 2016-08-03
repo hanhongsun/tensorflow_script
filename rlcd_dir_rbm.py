@@ -28,10 +28,10 @@ def sampleInt(probs):
     return tf.floor(probs + tf.random_uniform(tf.shape(probs), 0, 1))
 
 def scalePosNegOne(vec):
-    return tf.add(1.0, tf.mul(2.0, vec))
+    return tf.add(-1.0, tf.mul(2.0, vec))
 
 def scalePosNegOneInt(vec):
-    return tf.add(1, tf.mul(2, vec))
+    return tf.add(-1, tf.mul(2, vec))
 
 # define parameters
 b = tf.Variable(tf.random_uniform([size_h, 1], -0.05, 0.05))
